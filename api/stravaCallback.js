@@ -3,9 +3,9 @@ import { google } from "googleapis";
 
 function formatPrivateKey(key) {
   return key.replace(/\
-/g, "
-");
+/g, "\n");
 }
+
 
 export default async function handler(req, res) {
   console.log("Callback query:", req.query);

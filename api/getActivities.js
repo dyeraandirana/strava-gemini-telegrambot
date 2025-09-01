@@ -2,9 +2,10 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-return key.replace(/\\n/g, "\n"); // ✅ Diperbaiki: regex valid
+  return key.replace(/\
+/g, "
+");
 }
-
 async function getValidToken(userId) {
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,

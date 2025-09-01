@@ -2,7 +2,7 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\\n/g, "\n") // ✅ Diperbaiki: regex valid
+return key.replace(/\\n/g, "\n"); // ✅ Diperbaiki: regex valid
 }
 
 export default async function handler(req, res) {
@@ -10,7 +10,21 @@ export default async function handler(req, res) {
   const code = req.query.code;
   const userId = req.query.state;
   console.log("state param:", userId);
-  if (!code || !userId) return res.status(400).send("Missing code or userId");
+  if (!code || !userId || userId === "unknown") {
+    try {
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: userId || "",
+          text: "⚠️ Login gagal. Silakan ulangi proses login dari Telegram."
+        })
+      });
+    } catch (err) {
+      console.error("Fallback Telegram error:", err);
+    }
+    return res.status(400).send("Missing code or userId");
+  }
 
   try {
     const response = await fetch("https://www.strava.com/oauth/token", {
@@ -24,13 +38,9 @@ export default async function handler(req, res) {
       })
     });
     const data = await response.json();
-    console.log("Strava token response:", data);
     const { access_token, refresh_token, expires_at, athlete } = data;
 
-    if (!access_token) {
-      console.error("Strava token response:", data);
-      return res.status(400).send("Gagal ambil token dari Strava");
-    }
+    if (!access_token) return res.status(400).send("Gagal ambil token dari Strava");
 
     const auth = new google.auth.JWT(
       process.env.GOOGLE_CLIENT_EMAIL,
@@ -40,34 +50,23 @@ export default async function handler(req, res) {
     );
     const sheets = google.sheets({ version: "v4", auth });
 
-    try {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.SHEET_ID,
-        range: "Tokens!A:E",
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[userId, access_token, refresh_token, expires_at, athlete.id]]
-        }
-      });
-    } catch (err) {
-      console.error("Sheets error:", err);
-      return res.status(500).send("Gagal simpan token ke sheet");
-    }
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.SHEET_ID,
+      range: "Tokens!A:E",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[userId, access_token, refresh_token, expires_at, athlete.id]]
+      }
+    });
 
-    try {
-      const telegramRes = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: userId,
-          text: "✅ Strava berhasil terhubung! Kamu bisa kirim /analisis sekarang."
-        })
-      });
-      const telegramData = await telegramRes.json();
-      console.log("Telegram response:", telegramData);
-    } catch (err) {
-      console.error("Telegram sendMessage error:", err);
-    }
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: userId,
+        text: "✅ Strava berhasil terhubung! Kamu bisa kirim /analisis sekarang."
+      })
+    });
 
     res.send("Strava connected! Return to Telegram.");
   } catch (err) {

@@ -2,13 +2,14 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\\n/g, "\n"); // ✅ Diperbaiki: regex valid
+  return key.replace(/\\n/g, "\n") // ✅ Diperbaiki: regex valid
 }
 
 export default async function handler(req, res) {
   console.log("Callback query:", req.query);
   const code = req.query.code;
   const userId = req.query.state;
+  console.log("state param:", userId);
   if (!code || !userId) return res.status(400).send("Missing code or userId");
 
   try {

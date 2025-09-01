@@ -2,7 +2,9 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\\n/g, "\n") // ✅ Diperbaiki: regex valid
+  return key.replace(/\
+/g, "
+");
 }
 
 async function getValidToken(userId) {
@@ -57,7 +59,6 @@ async function getLastActivities(userId) {
     headers: { Authorization: `Bearer ${token}` }
   });
   const activities = await res.json();
-  console.log("Fetched activities:", activities);
   return activities;
 }
 

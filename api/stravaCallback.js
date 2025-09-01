@@ -5,7 +5,6 @@ export default async function handler(req, res) {
   const code = req.query.code;
   if (!code) return res.send("Missing code");
 
-  // Tukar code ke token Strava
   const response = await fetch("https://www.strava.com/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -19,7 +18,6 @@ export default async function handler(req, res) {
   const data = await response.json();
   const { access_token, refresh_token, expires_at, athlete } = data;
 
-  // Simpan ke Google Sheets
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,
     null,

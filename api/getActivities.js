@@ -2,7 +2,7 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\\n/g, "\n"); // ✅ Diperbaiki: regex valid
+  return key.replace(/\\n/g, "\n") // ✅ Diperbaiki: regex valid
 }
 
 async function getValidToken(userId) {

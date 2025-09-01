@@ -2,10 +2,7 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  // ✅ Diperbaiki: regex valid
-  return key.replace(/\
-/g, "
-");
+  return key.replace(/\\n/g, "\n"); // ✅ Diperbaiki: regex valid
 }
 
 export default async function handler(req, res) {

@@ -1,11 +1,18 @@
 import fetch from "node-fetch";
 import { google } from "googleapis";
 
+function formatPrivateKey(key) {
+  // ✅ Diperbaiki: regex valid
+  return key.replace(/\
+/g, "
+");
+}
+
 async function getValidToken(userId) {
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,
     null,
-    process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    formatPrivateKey(process.env.GOOGLE_PRIVATE_KEY),
     ["https://www.googleapis.com/auth/spreadsheets"]
   );
   const sheets = google.sheets({ version: "v4", auth });
@@ -53,6 +60,7 @@ async function getLastActivities(userId) {
     headers: { Authorization: `Bearer ${token}` }
   });
   const activities = await res.json();
+  console.log("Fetched activities:", activities);
   return activities;
 }
 

@@ -3,7 +3,8 @@ import { google } from "googleapis";
 
 export default async function handler(req, res) {
   const code = req.query.code;
-  if (!code) return res.send("Missing code");
+  const userId = req.query.state;
+  if (!code || !userId) return res.send("Missing code or userId");
 
   const response = await fetch("https://www.strava.com/oauth/token", {
     method: "POST",
@@ -21,7 +22,9 @@ export default async function handler(req, res) {
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,
     null,
-    process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    process.env.GOOGLE_PRIVATE_KEY.replace(/
+/g, "
+"),
     ["https://www.googleapis.com/auth/spreadsheets"]
   );
   const sheets = google.sheets({ version: "v4", auth });
@@ -31,8 +34,17 @@ export default async function handler(req, res) {
     range: "Tokens!A:E",
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[athlete.id, access_token, refresh_token, expires_at, ""]]
+      values: [[userId, access_token, refresh_token, expires_at, athlete.id]]
     }
+  });
+
+  await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: userId,
+      text: "✅ Strava berhasil terhubung! Kamu bisa kirim /analisis sekarang."
+    })
   });
 
   res.send("Strava connected! Return to Telegram.");

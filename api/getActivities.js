@@ -2,10 +2,10 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\
-/g, "
-");
+  return key.replace(/\\n/g, "\n");
 }
+
+
 async function getValidToken(userId) {
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,

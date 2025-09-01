@@ -16,6 +16,7 @@ async function getValidToken(userId) {
   });
   const row = sheetData.data.values.find(r => r[0] == userId);
   if (!row) throw new Error("User not found");
+
   let [id, access_token, refresh_token, expires_at] = row;
   const now = Math.floor(Date.now() / 1000);
 

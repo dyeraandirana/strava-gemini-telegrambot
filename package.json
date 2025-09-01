@@ -1,5 +1,5 @@
 {
-  "name": "telegram-strava-bot",
+  "name": "strava-gemini-telegrambot",
   "version": "1.0.0",
   "type": "module",
   "dependencies": {

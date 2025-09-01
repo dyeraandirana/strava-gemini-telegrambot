@@ -3,16 +3,26 @@ import fetch from "node-fetch";
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
+// /start
 bot.start((ctx) => {
-  ctx.reply("Selamat datang! Klik tombol login Strava.", {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "Login Strava", url: `${process.env.STRAVA_REDIRECT_URI}?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&scope=activity:read` }]
-      ]
+  ctx.reply(
+    "Selamat datang! Klik tombol login Strava.",
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "Login Strava",
+              url: `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.STRAVA_REDIRECT_URI}&scope=activity:read`
+            }
+          ]
+        ]
+      }
     }
-  });
+  );
 });
 
+// /analisis
 bot.command("analisis", async (ctx) => {
   const userId = ctx.from.id;
   try {
@@ -24,8 +34,10 @@ bot.command("analisis", async (ctx) => {
   }
 });
 
+// Vercel serverless handler
 export default async function handler(req, res) {
   console.log("Incoming update:", req.body);
+
   if (req.method !== "POST") return res.status(200).send("Use POST");
 
   try {

@@ -2,10 +2,11 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
+  // ✅ Diperbaiki: regex valid
   return key.replace(/\
-/g, "\n");
+/g, "
+");
 }
-
 
 export default async function handler(req, res) {
   console.log("Callback query:", req.query);

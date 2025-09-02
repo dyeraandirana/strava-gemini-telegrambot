@@ -1,95 +1,101 @@
 // api/telegramWebhook.js
 import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
+import { getActivities } from "./getActivities.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).send("Method not allowed");
-  }
-
-  const body = req.body;
-  if (!body.message) return res.send("No message");
-
-  const chatId = body.message.chat.id;
-  const text = body.message.text?.trim();
-
   try {
-    if (text === "/start" || text === "/connect") {
-      const url = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.BASE_URL}/api/stravaCallback&scope=read,activity:read&state=${chatId}`;
-      await sendMessage(chatId, `🔗 Klik untuk hubungkan Strava:\n${url}`);
+    const body = req.body;
+    const message = body.message;
+    if (!message) return res.send("ok");
+
+    const chatId = message.chat.id;
+    const text = message.text || "";
+
+    const sheets = await getSheetsClient();
+
+    async function sendMessage(text) {
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      });
     }
 
-    else if (text === "/status") {
-      const sheets = getSheetsClient();
+    if (text === "/connect") {
+      const authUrl = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.BASE_URL}/api/stravaCallback&approval_prompt=force&scope=read,activity:read&state=${chatId}`;
+      await sendMessage(`🔗 Klik untuk hubungkan Strava:\n${authUrl}`);
+
+    } else if (text === "/status") {
       const result = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SHEET_ID,
         range: "Tokens!A:E",
       });
       const rows = result.data.values || [];
-      const userRow = rows.find((r) => r[0] === String(chatId));
-      await sendMessage(
-        chatId,
-        userRow ? "✅ Strava sudah terhubung." : "❌ Belum terhubung."
-      );
-    }
+      const found = rows.find((r) => r[0] === String(chatId));
 
-    else if (text === "/disconnect") {
-      const sheets = getSheetsClient();
-      const result = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.SHEET_ID,
-        range: "Tokens!A:E",
-      });
-      const rows = result.data.values || [];
-      const newRows = rows.filter((r) => r[0] !== String(chatId));
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.SHEET_ID,
-        range: "Tokens!A:E",
-        valueInputOption: "RAW",
-        requestBody: { values: newRows },
-      });
-
-      await sendMessage(chatId, "🔌 Strava berhasil di-disconnect.");
-    }
-
-    else if (text === "/analisis") {
-      const resp = await fetch(
-        `${process.env.BASE_URL}/api/getActivities?userId=${chatId}`
-      );
-      const activities = await resp.json();
-
-      if (activities.error) {
-        await sendMessage(chatId, `⚠️ ${activities.error}`);
+      if (found) {
+        await sendMessage("✅ Strava sudah terhubung.");
       } else {
-        // Simpan ke Sheet
-        const sheets = getSheetsClient();
-        const values = activities.map((a) => [
-          a.name,
-          a.distance,
-          a.moving_time,
-          a.type,
-          a.start_date,
-        ]);
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: process.env.SHEET_ID,
-          range: "Activities!A:E",
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values },
-        });
-
-        // Analisis oleh Gemini (pseudo-code, nanti bisa diisi real call Gemini API)
-        const summary = `📊 Analisis 5 aktivitas terakhir:\n- Total: ${activities.length}\n- Rata-rata jarak: ${
-          (
-            activities.reduce((sum, a) => sum + a.distance, 0) / activities.length
-          ).toFixed(2)
-        } meter`;
-
-        await sendMessage(chatId, summary);
+        await sendMessage("❌ Belum ada koneksi Strava. Gunakan /connect");
       }
-    }
 
-    else {
-      await sendMessage(chatId, "🤖 Perintah tidak dikenal.");
+    } else if (text === "/disconnect") {
+      const result = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SHEET_ID,
+        range: "Tokens!A:E",
+      });
+      const rows = result.data.values || [];
+      const rowIndex = rows.findIndex((r) => r[0] === String(chatId));
+
+      if (rowIndex !== -1) {
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId: process.env.SHEET_ID,
+          range: `Tokens!A${rowIndex + 1}:E${rowIndex + 1}`,
+        });
+        await sendMessage("🗑️ Strava berhasil diputuskan.");
+      } else {
+        await sendMessage("❌ Tidak ada koneksi Strava untuk dihapus.");
+      }
+
+    } else if (text === "/analisis") {
+      try {
+        const activities = await getActivities(chatId, 5);
+
+        if (!activities.length) {
+          await sendMessage("❌ Tidak ada aktivitas ditemukan.");
+        } else {
+          // Simpan ke Sheet
+          const rows = activities.map((a) => [
+            new Date(a.start_date).toLocaleString("id-ID"),
+            a.name,
+            a.type,
+            a.distance,
+            a.moving_time,
+            a.average_speed,
+          ]);
+
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: process.env.SHEET_ID,
+            range: "Activities!A:F",
+            valueInputOption: "USER_ENTERED",
+            requestBody: { values: rows },
+          });
+
+          // Analisis sederhana (bisa diganti AI Gemini)
+          const summary = activities
+            .map((a, i) => `${i + 1}. ${a.name} - ${(a.distance / 1000).toFixed(2)} km`)
+            .join("\n");
+
+          await sendMessage("📊 5 Aktivitas Terakhir:\n" + summary);
+        }
+      } catch (err) {
+        console.error("Analisis error:", err);
+        await sendMessage("❌ Gagal mengambil data aktivitas.");
+      }
+
+    } else {
+      await sendMessage("🤖 Perintah tersedia: /connect, /status, /disconnect, /analisis");
     }
 
     res.send("ok");
@@ -97,12 +103,4 @@ export default async function handler(req, res) {
     console.error("Webhook error:", err);
     res.status(500).send("Internal Server Error");
   }
-}
-
-async function sendMessage(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
 }

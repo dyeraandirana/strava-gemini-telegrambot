@@ -30,9 +30,12 @@ export async function getAccessToken(userId) {
         refresh_token: refreshToken,
       }),
     });
-    const data = await resp.json();
 
-    if (!data.access_token) return null;
+    const data = await resp.json();
+    if (!data.access_token) {
+      console.error("❌ Gagal refresh token:", data);
+      return null;
+    }
 
     accessToken = data.access_token;
     refreshToken = data.refresh_token;
@@ -55,7 +58,9 @@ export async function getAccessToken(userId) {
 
 export async function getActivities(userId, perPage = 5) {
   const token = await getAccessToken(userId);
-  if (!token) throw new Error("Token tidak ditemukan");
+  if (!token) {
+    throw new Error("❌ Token tidak ditemukan atau refresh gagal");
+  }
 
   const resp = await fetch(
     `https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`,
@@ -64,6 +69,35 @@ export async function getActivities(userId, perPage = 5) {
     }
   );
 
-  if (!resp.ok) throw new Error("Gagal ambil aktivitas Strava");
-  return await resp.json();
+  const text = await resp.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    console.error("Strava balas non-JSON:", text);
+    throw new Error("❌ Strava balas bukan JSON");
+  }
+
+  if (!resp.ok) {
+    console.error("Strava API error:", json);
+    throw new Error(json.message || "Gagal ambil aktivitas Strava");
+  }
+
+  return json;
+}
+
+// API handler untuk Vercel
+export default async function handler(req, res) {
+  const userId = req.query.userId;
+  if (!userId) {
+    return res.status(400).json({ error: "Missing userId" });
+  }
+
+  try {
+    const activities = await getActivities(userId, 5);
+    return res.status(200).json(activities);
+  } catch (err) {
+    console.error("GetActivities error:", err);
+    return res.status(500).json({ error: err.message });
+  }
 }

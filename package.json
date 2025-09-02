@@ -5,6 +5,7 @@
   "dependencies": {
     "telegraf": "^4.15.0",
     "node-fetch": "^3.3.2",
-    "googleapis": "^133.0.0"
+    "googleapis": "^133.0.0",
+    "@google/generative-ai": "^0.12.0"
   }
 }

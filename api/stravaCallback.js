@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const code = req.query.code;
   const userId = req.query.state;
 
-  if (!code || !userId) {
+  if (!code || !userId || userId === "unknown") {
     return res.status(400).send("Missing code or userId");
   }
 
@@ -27,32 +27,30 @@ export default async function handler(req, res) {
     const { access_token, refresh_token, expires_at, athlete } = data;
 
     if (!access_token) {
-      return res.status(400).send("Gagal ambil token dari Strava");
+      return res.status(400).send("❌ Gagal ambil token dari Strava");
     }
 
-    // 2. Simpan token ke Google Sheets
-    const sheets = getSheetsClient();
+    const sheets = await getSheetsClient();
+
+    // 2. Simpan token ke Google Sheet
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SHEET_ID,
       range: "Tokens!A:E",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[userId, access_token, refresh_token, expires_at, athlete.id]],
+        values: [[userId, access_token, refresh_token, expires_at, athlete?.id || ""]],
       },
     });
 
-    // 3. Kirim pesan ke Telegram user
-    await fetch(
-      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: userId,
-          text: "✅ Strava berhasil terhubung! Kirim /analisis untuk lihat data.",
-        }),
-      }
-    );
+    // 3. Balas ke user Telegram
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: userId,
+        text: "✅ Strava berhasil terhubung! Kirim /analisis untuk lihat data.",
+      }),
+    });
 
     res.send("Strava connected! Kembali ke Telegram.");
   } catch (err) {

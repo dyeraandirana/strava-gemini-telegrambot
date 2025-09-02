@@ -1,7 +1,7 @@
 // api/telegramWebhook.js
 import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
-import { getActivities } from "./getActivities.js"; // langsung import fungsi
+import { getActivities, getAccessToken } from "./getActivities.js";
 
 function buildStravaAuthUrl(chatId) {
   const redirectUri = process.env.STRAVA_REDIRECT_URI;
@@ -77,7 +77,22 @@ export default async function handler(req, res) {
         if (!activities || activities.length === 0) {
           await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
         } else {
-          // --- Rincian aktivitas ---
+          // --- 1) Ambil info akun Strava user ---
+          const token = await getAccessToken(chatId);
+          let athleteName = "";
+          let athleteId = "";
+          try {
+            const resp = await fetch("https://www.strava.com/api/v3/athlete", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const profile = await resp.json();
+            athleteId = profile.id || "";
+            athleteName = `${profile.firstname || ""} ${profile.lastname || ""}`.trim();
+          } catch (err) {
+            console.error("❌ Gagal ambil profil Strava:", err);
+          }
+
+          // --- 2) Rincian aktivitas ---
           let detailMsg = "📋 5 Aktivitas Terakhir:\n";
           const sheetValues = [];
 
@@ -102,8 +117,12 @@ export default async function handler(req, res) {
               detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
             }
 
+            // simpan data lengkap ke sheet
             sheetValues.push([
-              a.name,
+              chatId,                        // Telegram User ID
+              athleteId,                     // Strava User ID
+              athleteName,                   // Nama akun Strava
+              a.name,                        // Nama Aktivitas
               a.start_date,
               a.type,
               (a.distance / 1000).toFixed(2),
@@ -117,20 +136,20 @@ export default async function handler(req, res) {
             ]);
           });
 
-          // Simpan ke Google Sheets
+          // --- 3) Simpan aktivitas ke Google Sheets ---
           try {
             const sheets = getSheetsClient();
             await sheets.spreadsheets.values.append({
               spreadsheetId: process.env.SHEET_ID,
-              range: "Activities!A:K",
+              range: "Activities!A:N", // 14 kolom
               valueInputOption: "USER_ENTERED",
               requestBody: { values: sheetValues },
             });
           } catch (err) {
-            console.error("❌ Gagal simpan ke Sheets:", err);
+            console.error("❌ Gagal simpan ke Sheets (Activities):", err);
           }
 
-          // Analisis Gemini
+          // --- 4) Analisis dengan Gemini ---
           let aiMsg;
           try {
             const { analyzeActivities } = await import("../lib/gemini.js");
@@ -141,7 +160,28 @@ export default async function handler(req, res) {
               "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti atau cek koneksi API.";
           }
 
-          // Kirim ke Telegram
+          // --- 5) Simpan hasil analisis ke Sheets ---
+          try {
+            const sheets = getSheetsClient();
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: process.env.SHEET_ID,
+              range: "Analysis!A:E", // Sheet baru untuk analisis
+              valueInputOption: "USER_ENTERED",
+              requestBody: {
+                values: [[
+                  new Date().toISOString(),
+                  chatId,
+                  athleteId,
+                  athleteName,
+                  aiMsg
+                ]]
+              },
+            });
+          } catch (err) {
+            console.error("❌ Gagal simpan analisis ke Sheets:", err);
+          }
+
+          // --- 6) Kirim pesan ke Telegram ---
           await sendMessage(chatId, detailMsg);
           await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
         }

@@ -3,35 +3,28 @@ import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
 
 /**
- * Base URL untuk memanggil endpoint internal & membangun redirect_uri.
- * Urutan prioritas:
- * 1) BASE_URL, contoh: https://your-app.vercel.app
- * 2) VERCEL_URL dari Vercel (host saja), kita tambahkan https://
+ * BASE URL project kamu
+ * - BASE_URL dari env (https://app.vercel.app)
+ * - fallback ke VERCEL_URL (tanpa https://)
  */
 const BASE =
   process.env.BASE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
 
-/**
- * Bangun URL OAuth Strava secara konsisten.
- * Pakai STRAVA_REDIRECT_URI jika tersedia (paling aman), fallback ke BASE + /api/stravaCallback.
- */
+/** Buat URL login Strava */
 function buildStravaAuthUrl(chatId) {
   const redirectUri =
     process.env.STRAVA_REDIRECT_URI ||
     (BASE ? `${BASE}/api/stravaCallback` : null);
 
   if (!redirectUri) {
-    // Biar kebaca jelas di log kalau env-nya belum beres
-    throw new Error(
-      "Missing STRAVA_REDIRECT_URI or BASE_URL/VERCEL_URL – cannot build redirect_uri"
-    );
+    throw new Error("❌ Missing STRAVA_REDIRECT_URI or BASE_URL/VERCEL_URL");
   }
 
   const params = new URLSearchParams({
     client_id: process.env.STRAVA_CLIENT_ID,
     response_type: "code",
-    redirect_uri: redirectUri, // biarkan apa adanya; domain & path harus persis seperti di Strava settings
+    redirect_uri: redirectUri,
     scope: "read,activity:read",
     state: String(chatId),
   });
@@ -91,42 +84,31 @@ export default async function handler(req, res) {
 
     else if (text === "/analisis") {
       if (!BASE) {
-        throw new Error(
-          "BASE_URL/VERCEL_URL is not set – cannot call internal API"
-        );
+        throw new Error("❌ BASE_URL/VERCEL_URL is not set");
       }
 
       const resp = await fetch(
         `${BASE}/api/getActivities?userId=${encodeURIComponent(chatId)}`
       );
-      const activities = await resp.json();
+
+      let activities;
+      try {
+        activities = await resp.json();
+      } catch {
+        const text = await resp.text();
+        console.error("Non-JSON response from getActivities:", text);
+        return await sendMessage(
+          chatId,
+          "⚠️ Gagal membaca data aktivitas. Silakan coba lagi."
+        );
+      }
 
       if (activities.error) {
         await sendMessage(chatId, `⚠️ ${activities.error}`);
       } else if (!Array.isArray(activities) || activities.length === 0) {
-        await sendMessage(chatId, "Tidak ada aktivitas ditemukan.");
+        await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
       } else {
-        // (opsional) simpan ke Sheet
-        try {
-          const sheets = getSheetsClient();
-          const values = activities.map((a) => [
-            a.name,
-            a.distance,
-            a.moving_time,
-            a.type,
-            a.start_date,
-          ]);
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: process.env.SHEET_ID,
-            range: "Activities!A:E",
-            valueInputOption: "USER_ENTERED",
-            requestBody: { values },
-          });
-        } catch (e) {
-          console.warn("Gagal append ke sheet (diabaikan):", e?.message);
-        }
-
-        // Ringkasan simple (placeholder Gemini)
+        // ringkasan sederhana (placeholder Gemini)
         const avgDistance =
           activities.reduce((sum, a) => sum + (a.distance || 0), 0) /
           activities.length;
@@ -134,7 +116,7 @@ export default async function handler(req, res) {
           `📊 Analisis 5 aktivitas terakhir:\n` +
           `• Total: ${activities.length}\n` +
           `• Rata-rata jarak: ${avgDistance.toFixed(2)} m\n\n` +
-          `Ketik /connect lagi jika ingin update token.`;
+          `⚡ Gunakan /connect ulang jika token expired.`;
 
         await sendMessage(chatId, summary);
       }

@@ -4,7 +4,6 @@ import { getSheetsClient } from "../lib/googleAuth.js";
 
 export default async function handler(req, res) {
   const userId = req.query.userId;
-
   if (!userId) {
     return res.status(400).json({ error: "Missing userId" });
   }
@@ -24,9 +23,9 @@ export default async function handler(req, res) {
     }
 
     let [id, accessToken, refreshToken, expiresAt, athleteId] = userRow;
-
-    // === Check expiry ===
     const now = Math.floor(Date.now() / 1000);
+
+    // Refresh token jika expired
     if (Number(expiresAt) < now) {
       const refreshResp = await fetch("https://www.strava.com/oauth/token", {
         method: "POST",
@@ -45,9 +44,9 @@ export default async function handler(req, res) {
         refreshToken = refreshData.refresh_token;
         expiresAt = refreshData.expires_at;
 
-        // Update ke Sheets
         const idx = rows.findIndex((r) => r[0] === String(userId));
         rows[idx] = [userId, accessToken, refreshToken, expiresAt, athleteId];
+
         await sheets.spreadsheets.values.update({
           spreadsheetId: process.env.SHEET_ID,
           range: "Tokens!A:E",
@@ -59,12 +58,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // === Get last 5 activities ===
+    // Ambil aktivitas terakhir
     const activitiesResp = await fetch(
       "https://www.strava.com/api/v3/athlete/activities?per_page=5",
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
     if (!activitiesResp.ok) {

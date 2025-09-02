@@ -72,134 +72,124 @@ export default async function handler(req, res) {
 
     else if (text === "/analisis") {
       try {
+        // --- Ambil data aktivitas ---
         const activities = await getActivities(chatId, 5);
-
         if (!activities || activities.length === 0) {
           await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
-        } else {
-          // --- 1) Ambil info akun Strava user ---
+          return;
+        }
+
+        // --- Ambil nama akun Strava ---
+        let athleteName = "";
+        let stravaId = "";
+        try {
           const token = await getAccessToken(chatId);
-          let athleteName = "";
-          let athleteId = "";
-          try {
-            const resp = await fetch("https://www.strava.com/api/v3/athlete", {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const profile = await resp.json();
-            athleteId = profile.id || "";
-            athleteName = `${profile.firstname || ""} ${profile.lastname || ""}`.trim();
-          } catch (err) {
-            console.error("❌ Gagal ambil profil Strava:", err);
-          }
-
-          // --- 2) Rincian aktivitas ---
-          let detailMsg = "📋 5 Aktivitas Terakhir:\n";
-          const sheetValues = [];
-
-          activities.forEach((a, idx) => {
-            const pace =
-              a.moving_time > 0
-                ? (a.distance / a.moving_time).toFixed(2) + " m/s"
-                : "-";
-
-            detailMsg += `\n${idx + 1}. ${a.name}\n`;
-            detailMsg += `   🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
-            detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
-            detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
-            detailMsg += `   ⚡ Pace: ${pace}\n`;
-            if (a.average_heartrate) {
-              detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
-            }
-            if (a.max_heartrate) {
-              detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
-            }
-            if (a.total_elevation_gain) {
-              detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
-            }
-
-            // simpan data lengkap ke sheet
-            sheetValues.push([
-              chatId,                        // Telegram User ID
-              athleteId,                     // Strava User ID
-              athleteName,                   // Nama akun Strava
-              a.name,                        // Nama Aktivitas
-              a.start_date,
-              a.type,
-              (a.distance / 1000).toFixed(2),
-              (a.moving_time / 60).toFixed(1),
-              pace,
-              a.average_speed,
-              a.max_speed,
-              a.average_heartrate || "",
-              a.max_heartrate || "",
-              a.total_elevation_gain || "",
-            ]);
+          const resp = await fetch("https://www.strava.com/api/v3/athlete", {
+            headers: { Authorization: `Bearer ${token}` },
           });
+          const profile = await resp.json();
+          athleteName = `${profile.firstname || ""} ${profile.lastname || ""}`.trim();
+          stravaId = profile.id || "";
+        } catch (err) {
+          console.error("❌ Gagal ambil profil Strava:", err);
+        }
 
-          // --- 3) Simpan aktivitas ke Google Sheets ---
+        // --- 1) Rincian aktivitas ---
+        let detailMsg = "📋 5 Aktivitas Terakhir:\n";
+        const sheetValues = [];
+
+        activities.forEach((a, idx) => {
+          const pace =
+            a.moving_time > 0
+              ? (a.distance / a.moving_time).toFixed(2) + " m/s"
+              : "-";
+
+          detailMsg += `\n${idx + 1}. ${a.name}\n`;
+          detailMsg += `   🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
+          detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
+          detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
+          detailMsg += `   ⚡ Pace: ${pace}\n`;
+          if (a.average_heartrate) {
+            detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
+          }
+          if (a.max_heartrate) {
+            detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
+          }
+          if (a.total_elevation_gain) {
+            detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
+          }
+
+          // Data untuk Google Sheets
+          sheetValues.push([
+            chatId,                          // Telegram User ID
+            stravaId,                        // Strava User ID
+            athleteName,                     // Nama akun Strava
+            a.name,                          // Nama Aktivitas
+            a.start_date,
+            a.type,
+            (a.distance / 1000).toFixed(2),
+            (a.moving_time / 60).toFixed(1),
+            pace,
+            a.average_speed,
+            a.max_speed,
+            a.average_heartrate || "",
+            a.max_heartrate || "",
+            a.total_elevation_gain || "",
+          ]);
+        });
+
+        // --- 2) Simpan ke Google Sheet ---
+        try {
+          const sheets = getSheetsClient();
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: process.env.SHEET_ID,
+            range: "Activities!A:N", // 14 kolom
+            valueInputOption: "USER_ENTERED",
+            requestBody: { values: sheetValues },
+          });
+        } catch (err) {
+          console.error("❌ Gagal simpan ke Sheets:", err);
+        }
+
+        // --- 3) Analisis dengan Gemini ---
+        let aiMsg;
+        try {
+          const { analyzeActivities } = await import("../lib/gemini.js");
+          aiMsg = await analyzeActivities(activities, athleteName);
+
+          // Simpan hasil analisis juga
           try {
             const sheets = getSheetsClient();
             await sheets.spreadsheets.values.append({
               spreadsheetId: process.env.SHEET_ID,
-              range: "Activities!A:N", // 14 kolom
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: sheetValues },
-            });
-          } catch (err) {
-            console.error("❌ Gagal simpan ke Sheets (Activities):", err);
-          }
-
-          // --- 4) Analisis dengan Gemini ---
-          let aiMsg;
-          try {
-            const { analyzeActivities } = await import("../lib/gemini.js");
-            aiMsg = await analyzeActivities(activities);
-          } catch (err) {
-            console.error("❌ Gemini error:", err);
-            aiMsg =
-              "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti atau cek koneksi API.";
-          }
-
-          // --- 5) Simpan hasil analisis ke Sheets ---
-          try {
-            const sheets = getSheetsClient();
-            await sheets.spreadsheets.values.append({
-              spreadsheetId: process.env.SHEET_ID,
-              range: "Analysis!A:E", // Sheet baru untuk analisis
+              range: "Analysis!A:D",
               valueInputOption: "USER_ENTERED",
               requestBody: {
-                values: [[
-                  new Date().toISOString(),
-                  chatId,
-                  athleteId,
-                  athleteName,
-                  aiMsg
-                ]]
+                values: [[chatId, stravaId, athleteName, aiMsg]],
               },
             });
           } catch (err) {
             console.error("❌ Gagal simpan analisis ke Sheets:", err);
           }
-
-          // --- 6) Kirim pesan ke Telegram ---
-          await sendMessage(chatId, detailMsg);
-          await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
+        } catch (err) {
+          console.error("❌ Gemini error:", err);
+          aiMsg = "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti.";
         }
+
+        // --- 4) Kirim pesan ke Telegram ---
+        await sendMessage(chatId, detailMsg);
+        await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
       } catch (err) {
         console.error("Analisis error:", err);
         await sendMessage(chatId, `⚠️ ${err.message}`);
       }
     }
-
-    else {
-      await sendMessage(chatId, "🤖 Perintah tidak dikenal.");
-    }
-
-    res.send("ok");
   } catch (err) {
     console.error("Webhook error:", err);
-    res.status(500).send("Internal Server Error");
+    await sendMessage(chatId, "⚠️ Terjadi error di server.");
   }
+
+  res.send("OK");
 }
 
 async function sendMessage(chatId, text) {

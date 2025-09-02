@@ -70,39 +70,85 @@ export default async function handler(req, res) {
       await sendMessage(chatId, "🔌 Strava berhasil di-disconnect.");
     }
 
-    else if (text === "/analisis") {
-      try {
-        const activities = await getActivities(chatId, 5);
+else if (text === "/analisis") {
+  try {
+    const activities = await getActivities(chatId, 5);
 
-        if (!activities || activities.length === 0) {
-          await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
-        } else {
-          const avgDistance =
-            activities.reduce((sum, a) => sum + (a.distance || 0), 0) /
-            activities.length;
+    if (!activities || activities.length === 0) {
+      await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
+    } else {
+      // --- 1) Rincian aktivitas ---
+      let detailMsg = "📋 5 Aktivitas Terakhir:\n";
+      const sheetValues = [];
 
-          const summary =
-            `📊 Analisis 5 aktivitas terakhir:\n` +
-            `• Total: ${activities.length}\n` +
-            `• Rata-rata jarak: ${avgDistance.toFixed(2)} m\n\n` +
-            `⚡ Gunakan /connect ulang jika token expired.`;
+      activities.forEach((a, idx) => {
+        const pace =
+          a.moving_time > 0
+            ? (a.distance / a.moving_time).toFixed(2) + " m/s"
+            : "-";
 
-          await sendMessage(chatId, summary);
+        detailMsg += `\n${idx + 1}. ${a.name}\n`;
+        detailMsg += `   🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
+        detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
+        detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
+        detailMsg += `   ⚡ Pace: ${pace}\n`;
+        if (a.average_heartrate) {
+          detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
         }
+        if (a.max_heartrate) {
+          detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
+        }
+        if (a.total_elevation_gain) {
+          detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
+        }
+
+        // data untuk Google Sheets
+        sheetValues.push([
+          a.name,
+          a.start_date,
+          a.type,
+          (a.distance / 1000).toFixed(2),
+          (a.moving_time / 60).toFixed(1),
+          pace,
+          a.average_speed,
+          a.max_speed,
+          a.average_heartrate || "",
+          a.max_heartrate || "",
+          a.total_elevation_gain || "",
+        ]);
+      });
+
+      // --- 2) Simpan ke Google Sheet ---
+      try {
+        const sheets = getSheetsClient();
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.SHEET_ID,
+          range: "Activities!A:K", // pastikan sheet punya header yg sesuai
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: sheetValues },
+        });
       } catch (err) {
-        console.error("Analisis error:", err);
-        await sendMessage(chatId, `⚠️ ${err.message}`);
+        console.error("❌ Gagal simpan ke Sheets:", err);
       }
-    }
 
-    else {
-      await sendMessage(chatId, "🤖 Perintah tidak dikenal.");
-    }
+      // --- 3) Analisis dengan Gemini ---
+      let aiMsg;
+      try {
+        const { analyzeActivities } = await import("../lib/gemini.js");
+        aiMsg = await analyzeActivities(activities);
+      } catch (err) {
+        console.error("❌ Gemini error:", err);
+        aiMsg =
+          "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti atau cek koneksi API.";
+      }
 
-    res.send("ok");
+      // --- 4) Kirim pesan ke Telegram ---
+      await sendMessage(chatId, detailMsg);
+      await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
+    }
   } catch (err) {
-    console.error("Webhook error:", err);
-    res.status(500).send("Internal Server Error");
+    console.error("Analisis error:", err);
+    await sendMessage(chatId, `⚠️ ${err.message}`);
   }
 }
 

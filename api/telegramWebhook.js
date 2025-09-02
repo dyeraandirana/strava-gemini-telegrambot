@@ -1,24 +1,12 @@
 // api/telegramWebhook.js
 import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
+import { getActivities } from "./getActivities.js"; // langsung import fungsi, bukan fetch ke BASE
 
-/**
- * BASE URL project kamu
- * - BASE_URL dari env (https://app.vercel.app)
- * - fallback ke VERCEL_URL (tanpa https://)
- */
-const BASE =
-  process.env.BASE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-
-/** Buat URL login Strava */
 function buildStravaAuthUrl(chatId) {
-  const redirectUri =
-    process.env.STRAVA_REDIRECT_URI ||
-    (BASE ? `${BASE}/api/stravaCallback` : null);
-
+  const redirectUri = process.env.STRAVA_REDIRECT_URI;
   if (!redirectUri) {
-    throw new Error("❌ Missing STRAVA_REDIRECT_URI or BASE_URL/VERCEL_URL");
+    throw new Error("❌ STRAVA_REDIRECT_URI belum diset di env");
   }
 
   const params = new URLSearchParams({
@@ -82,45 +70,30 @@ export default async function handler(req, res) {
       await sendMessage(chatId, "🔌 Strava berhasil di-disconnect.");
     }
 
-       else if (text === "/analisis") {
-      if (!BASE) {
-        throw new Error("❌ BASE_URL/VERCEL_URL is not set");
-      }
-    
-      const resp = await fetch(
-        `${BASE}/api/getActivities?userId=${encodeURIComponent(chatId)}`
-      );
-    
-      const raw = await resp.text();  // baca sekali
-      let activities;
+    else if (text === "/analisis") {
       try {
-        activities = JSON.parse(raw);
-      } catch {
-        console.error("Non-JSON response from getActivities:", raw);
-        return await sendMessage(
-          chatId,
-          "⚠️ Gagal membaca data aktivitas. Silakan coba lagi."
-        );
-      }
-    
-      if (activities.error) {
-        await sendMessage(chatId, `⚠️ ${activities.error}`);
-      } else if (!Array.isArray(activities) || activities.length === 0) {
-        await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
-      } else {
-        const avgDistance =
-          activities.reduce((sum, a) => sum + (a.distance || 0), 0) /
-          activities.length;
-        const summary =
-          `📊 Analisis 5 aktivitas terakhir:\n` +
-          `• Total: ${activities.length}\n` +
-          `• Rata-rata jarak: ${avgDistance.toFixed(2)} m\n\n` +
-          `⚡ Gunakan /connect ulang jika token expired.`;
-    
-        await sendMessage(chatId, summary);
+        const activities = await getActivities(chatId, 5);
+
+        if (!activities || activities.length === 0) {
+          await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
+        } else {
+          const avgDistance =
+            activities.reduce((sum, a) => sum + (a.distance || 0), 0) /
+            activities.length;
+
+          const summary =
+            `📊 Analisis 5 aktivitas terakhir:\n` +
+            `• Total: ${activities.length}\n` +
+            `• Rata-rata jarak: ${avgDistance.toFixed(2)} m\n\n` +
+            `⚡ Gunakan /connect ulang jika token expired.`;
+
+          await sendMessage(chatId, summary);
+        }
+      } catch (err) {
+        console.error("Analisis error:", err);
+        await sendMessage(chatId, `⚠️ ${err.message}`);
       }
     }
-
 
     else {
       await sendMessage(chatId, "🤖 Perintah tidak dikenal.");

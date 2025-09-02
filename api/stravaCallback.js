@@ -3,9 +3,7 @@ import fetch from "node-fetch";
 import { google } from "googleapis";
 
 function formatPrivateKey(key) {
-  return key.replace(/\
-/g, "
-");
+  return key.replace(/\\n/g, "\n");
 }
 
 export default async function handler(req, res) {

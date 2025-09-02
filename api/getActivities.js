@@ -2,76 +2,68 @@
 import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
 
-export default async function handler(req, res) {
-  const userId = req.query.userId;
-  if (!userId) {
-    return res.status(400).json({ error: "Missing userId" });
-  }
+export async function getAccessToken(userId) {
+  const sheets = await getSheetsClient();
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "Tokens!A:E",
+  });
 
-  try {
-    const sheets = getSheetsClient();
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SHEET_ID,
-      range: "Tokens!A:E",
+  const rows = result.data.values || [];
+  if (rows.length === 0) return null;
+
+  const rowIndex = rows.findIndex((r) => r[0] === String(userId));
+  if (rowIndex === -1) return null;
+
+  let [_, accessToken, refreshToken, expiresAt] = rows[rowIndex];
+  expiresAt = parseInt(expiresAt, 10);
+
+  if (Date.now() / 1000 >= expiresAt) {
+    // Refresh token
+    const resp = await fetch("https://www.strava.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.STRAVA_CLIENT_ID,
+        client_secret: process.env.STRAVA_CLIENT_SECRET,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
     });
+    const data = await resp.json();
 
-    const rows = result.data.values || [];
-    const userRow = rows.find((r) => r[0] === String(userId));
+    if (!data.access_token) return null;
 
-    if (!userRow) {
-      return res.status(404).json({ error: "User not connected" });
-    }
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token;
+    expiresAt = data.expires_at;
 
-    let [id, accessToken, refreshToken, expiresAt, athleteId] = userRow;
-    const now = Math.floor(Date.now() / 1000);
-
-    // Refresh token jika expired
-    if (Number(expiresAt) < now) {
-      const refreshResp = await fetch("https://www.strava.com/oauth/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: process.env.STRAVA_CLIENT_ID,
-          client_secret: process.env.STRAVA_CLIENT_SECRET,
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-        }),
-      });
-
-      const refreshData = await refreshResp.json();
-      if (refreshData.access_token) {
-        accessToken = refreshData.access_token;
-        refreshToken = refreshData.refresh_token;
-        expiresAt = refreshData.expires_at;
-
-        const idx = rows.findIndex((r) => r[0] === String(userId));
-        rows[idx] = [userId, accessToken, refreshToken, expiresAt, athleteId];
-
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: process.env.SHEET_ID,
-          range: "Tokens!A:E",
-          valueInputOption: "RAW",
-          requestBody: { values: rows },
-        });
-      } else {
-        return res.status(400).json({ error: "Failed to refresh token" });
-      }
-    }
-
-    // Ambil aktivitas terakhir
-    const activitiesResp = await fetch(
-      "https://www.strava.com/api/v3/athlete/activities?per_page=5",
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    if (!activitiesResp.ok) {
-      throw new Error("Failed to fetch activities from Strava");
-    }
-
-    const activities = await activitiesResp.json();
-    return res.status(200).json(activities);
-  } catch (err) {
-    console.error("Get activities error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    // Update row milik user
+    const range = `Tokens!A${rowIndex + 1}:E${rowIndex + 1}`;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.SHEET_ID,
+      range,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[userId, accessToken, refreshToken, expiresAt, rows[rowIndex][4]]],
+      },
+    });
   }
+
+  return accessToken;
+}
+
+export async function getActivities(userId, perPage = 5) {
+  const token = await getAccessToken(userId);
+  if (!token) throw new Error("Token tidak ditemukan");
+
+  const resp = await fetch(
+    `https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (!resp.ok) throw new Error("Gagal ambil aktivitas Strava");
+  return await resp.json();
 }

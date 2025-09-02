@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Tukar code ke token
+    // 1. Tukar code ke token Strava
     const response = await fetch("https://www.strava.com/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -21,16 +21,16 @@ export default async function handler(req, res) {
         grant_type: "authorization_code",
       }),
     });
+
     const data = await response.json();
     const { access_token, refresh_token, expires_at, athlete } = data;
 
     if (!access_token) {
-      return res.status(400).send("Gagal ambil token dari Strava");
+      return res.status(400).send("❌ Gagal ambil token dari Strava");
     }
 
-    // 2. Simpan ke Google Sheet
-    const sheets = getSheetsClient();
-
+    // 2. Simpan token ke Google Sheet
+    const sheets = await getSheetsClient(); // 👈 pakai await
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SHEET_ID,
       range: "Tokens!A:E",
@@ -50,9 +50,9 @@ export default async function handler(req, res) {
       }),
     });
 
-    res.send("Strava connected! Kembali ke Telegram.");
+    return res.send("Strava connected! Kembali ke Telegram.");
   } catch (err) {
-    console.error("Callback error:", err);
-    res.status(500).send("Internal Server Error");
+    console.error("❌ Callback error:", err);
+    return res.status(500).send("Internal Server Error");
   }
 }

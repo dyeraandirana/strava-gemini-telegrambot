@@ -82,33 +82,32 @@ export default async function handler(req, res) {
       await sendMessage(chatId, "🔌 Strava berhasil di-disconnect.");
     }
 
-    else if (text === "/analisis") {
+       else if (text === "/analisis") {
       if (!BASE) {
         throw new Error("❌ BASE_URL/VERCEL_URL is not set");
       }
-
+    
       const resp = await fetch(
         `${BASE}/api/getActivities?userId=${encodeURIComponent(chatId)}`
       );
-
+    
+      const raw = await resp.text();  // baca sekali
       let activities;
       try {
-        activities = await resp.json();
+        activities = JSON.parse(raw);
       } catch {
-        const text = await resp.text();
-        console.error("Non-JSON response from getActivities:", text);
+        console.error("Non-JSON response from getActivities:", raw);
         return await sendMessage(
           chatId,
           "⚠️ Gagal membaca data aktivitas. Silakan coba lagi."
         );
       }
-
+    
       if (activities.error) {
         await sendMessage(chatId, `⚠️ ${activities.error}`);
       } else if (!Array.isArray(activities) || activities.length === 0) {
         await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
       } else {
-        // ringkasan sederhana (placeholder Gemini)
         const avgDistance =
           activities.reduce((sum, a) => sum + (a.distance || 0), 0) /
           activities.length;
@@ -117,10 +116,11 @@ export default async function handler(req, res) {
           `• Total: ${activities.length}\n` +
           `• Rata-rata jarak: ${avgDistance.toFixed(2)} m\n\n` +
           `⚡ Gunakan /connect ulang jika token expired.`;
-
+    
         await sendMessage(chatId, summary);
       }
     }
+
 
     else {
       await sendMessage(chatId, "🤖 Perintah tidak dikenal.");

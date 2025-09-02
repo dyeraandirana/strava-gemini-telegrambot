@@ -3,33 +3,31 @@ import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
 
 export default async function handler(req, res) {
-  const { userId } = req.query;
+  const userId = req.query.userId;
 
   if (!userId) {
-    return res.status(400).send("❌ Missing userId");
+    return res.status(400).json({ error: "Missing userId" });
   }
 
   try {
     const sheets = getSheetsClient();
-
-    // 1. Ambil token dari Google Sheets
-    const sheetResp = await sheets.spreadsheets.values.get({
+    const result = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SHEET_ID,
       range: "Tokens!A:E",
     });
 
-    const rows = sheetResp.data.values || [];
-    const userRow = rows.find((row) => row[0] === userId);
+    const rows = result.data.values || [];
+    const userRow = rows.find((r) => r[0] === String(userId));
 
     if (!userRow) {
-      return res.status(404).send("❌ User tidak ditemukan di database");
+      return res.status(404).json({ error: "User not connected" });
     }
 
-    let [uid, accessToken, refreshToken, expiresAt] = userRow;
-    expiresAt = parseInt(expiresAt, 10);
+    let [id, accessToken, refreshToken, expiresAt, athleteId] = userRow;
 
-    // 2. Refresh token kalau sudah expired
-    if (Date.now() / 1000 >= expiresAt) {
+    // === Check expiry ===
+    const now = Math.floor(Date.now() / 1000);
+    if (Number(expiresAt) < now) {
       const refreshResp = await fetch("https://www.strava.com/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,42 +40,41 @@ export default async function handler(req, res) {
       });
 
       const refreshData = await refreshResp.json();
-      if (!refreshData.access_token) {
-        return res.status(400).send("❌ Gagal refresh token");
+      if (refreshData.access_token) {
+        accessToken = refreshData.access_token;
+        refreshToken = refreshData.refresh_token;
+        expiresAt = refreshData.expires_at;
+
+        // Update ke Sheets
+        const idx = rows.findIndex((r) => r[0] === String(userId));
+        rows[idx] = [userId, accessToken, refreshToken, expiresAt, athleteId];
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.SHEET_ID,
+          range: "Tokens!A:E",
+          valueInputOption: "RAW",
+          requestBody: { values: rows },
+        });
+      } else {
+        return res.status(400).json({ error: "Failed to refresh token" });
       }
-
-      accessToken = refreshData.access_token;
-      refreshToken = refreshData.refresh_token;
-      expiresAt = refreshData.expires_at;
-
-      // Update ke Google Sheets
-      const rowIndex = rows.findIndex((r) => r[0] === userId) + 1; // +1 karena header
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.SHEET_ID,
-        range: `Tokens!A${rowIndex}:E${rowIndex}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[userId, accessToken, refreshToken, expiresAt, userRow[4]]],
-        },
-      });
     }
 
-    // 3. Ambil 5 aktivitas terakhir
-    const actResp = await fetch(
+    // === Get last 5 activities ===
+    const activitiesResp = await fetch(
       "https://www.strava.com/api/v3/athlete/activities?per_page=5",
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
     );
 
-    if (!actResp.ok) {
-      throw new Error(`Strava API error: ${actResp.statusText}`);
+    if (!activitiesResp.ok) {
+      throw new Error("Failed to fetch activities from Strava");
     }
 
-    const activities = await actResp.json();
-    res.json(activities);
+    const activities = await activitiesResp.json();
+    return res.status(200).json(activities);
   } catch (err) {
-    console.error("❌ Gagal mengambil data aktivitas:", err);
-    res.status(500).send("Internal Server Error");
+    console.error("Get activities error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 }

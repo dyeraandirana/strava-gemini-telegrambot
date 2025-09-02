@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     }
 
     if (text === "/connect") {
-      const url = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.BASE_URL}/api/stravaCallback&scope=read,activity:read&state=${chatId}`;
+      const url = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.STRAVA_REDIRECT_URI}/api/stravaCallback&scope=read,activity:read&state=${chatId}`;
       await sendMessage(`🔗 Klik untuk hubungkan Strava:\n${authUrl}`);
 
     } else if (text === "/status") {

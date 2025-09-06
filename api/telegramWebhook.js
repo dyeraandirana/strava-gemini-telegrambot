@@ -119,12 +119,18 @@ export default async function handler(req, res) {
           if (a.splits && a.splits.length > 0) {
             splitSummary = a.splits
               .map((s, i) => {
-                const pace = s.moving_time > 0
-                  ? (s.distance / s.moving_time).toFixed(2)
-                  : "-";
-                return `${i + 1}:${pace} m/s`;
+                // pace per km
+                const paceSec = s.moving_time > 0 ? s.moving_time / (s.distance / 1000) : 0;
+                const min = Math.floor(paceSec / 60);
+                const sec = Math.round(paceSec % 60).toString().padStart(2, "0");
+                const paceStr = paceSec ? `${min}:${sec}/km` : "-";
+
+                // HR kalau ada
+                const hr = s.average_heartrate ? ` (HR ${s.average_heartrate})` : "";
+
+                return `KM ${i + 1}: ${paceStr}${hr}`;
               })
-              .join(", ");
+              .join(" | ");
             detailMsg += `   📊 Splits: ${splitSummary}\n`;
           }
 

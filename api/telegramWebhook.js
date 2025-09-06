@@ -72,6 +72,16 @@ export default async function handler(req, res) {
 
     else if (text === "/analisis") {
       try {
+        // --- Pastikan user masih connect ---
+        const token = await getAccessToken(chatId);
+        if (!token) {
+          await sendMessage(
+            chatId,
+            "❌ Kamu belum connect Strava.\n\nGunakan /connect untuk menghubungkan kembali."
+          );
+          return;
+        }
+
         // --- Ambil 3 aktivitas terakhir + splits ---
         const activities = await getActivitiesWithSplits(chatId, 3);
         if (!activities || activities.length === 0) {
@@ -83,7 +93,6 @@ export default async function handler(req, res) {
         let athleteName = "";
         let stravaId = "";
         try {
-          const token = await getAccessToken(chatId);
           const resp = await fetch("https://www.strava.com/api/v3/athlete", {
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -95,27 +104,24 @@ export default async function handler(req, res) {
         }
 
         // --- 1) Rincian aktivitas ---
-        let detailMsg = "📋 3 Aktivitas Terakhir:\n";
         const sheetValues = [];
-
-        activities.forEach((a, idx) => {
-          // pace rata-rata aktivitas → menit/km
+        for (const [idx, a] of activities.entries()) {
           const avgPaceSec = a.moving_time > 0 ? a.moving_time / (a.distance / 1000) : 0;
           const avgMin = Math.floor(avgPaceSec / 60);
           const avgSec = Math.round(avgPaceSec % 60).toString().padStart(2, "0");
           const avgPaceStr = avgPaceSec ? `${avgMin}:${avgSec}/km` : "-";
 
-          detailMsg += `\n${idx + 1}. ${a.name}\n`;
-          detailMsg += `   🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
-          detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
-          detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
-          detailMsg += `   ⚡ Pace rata²: ${avgPaceStr}\n`;
+          let block = `<blockquote expandable>\n`;
+          block += `${idx + 1}. ${a.name}\n`;
+          block += `🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
+          block += `🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
+          block += `⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
+          block += `⚡ Pace rata²: ${avgPaceStr}\n`;
 
-          if (a.average_heartrate) detailMsg += `   ❤️ HR rata²: ${Math.round(a.average_heartrate)} bpm\n`;
-          if (a.max_heartrate) detailMsg += `   🔺 HR max: ${Math.round(a.max_heartrate)} bpm\n`;
-          if (a.total_elevation_gain) detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
+          if (a.average_heartrate) block += `❤️ HR rata²: ${Math.round(a.average_heartrate)} bpm\n`;
+          if (a.max_heartrate) block += `🔺 HR max: ${Math.round(a.max_heartrate)} bpm\n`;
+          if (a.total_elevation_gain) block += `⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
 
-          // --- Splits ---
           let splitSummary = "No splits";
           if (a.splits && a.splits.length > 0) {
             splitSummary = a.splits
@@ -124,16 +130,17 @@ export default async function handler(req, res) {
                 const min = Math.floor(paceSec / 60);
                 const sec = Math.round(paceSec % 60).toString().padStart(2, "0");
                 const paceStr = paceSec ? `${min}:${sec}/km` : "-";
-
                 const hr = s.average_heartrate ? ` (HR ${Math.round(s.average_heartrate)})` : "";
-                return `> KM ${i + 1}: ${paceStr}${hr}`; // blockquote format
+                return `KM ${i + 1}: ${paceStr}${hr}`;
               })
               .join("\n");
-
-            detailMsg += `   📊 Splits:\n${splitSummary}\n`;
+            block += `📊 Splits:\n${splitSummary}\n`;
           }
 
-          // Data untuk Google Sheets
+          block += `</blockquote>`;
+          await sendMessage(chatId, block);
+
+          // Simpan ke Google Sheets
           sheetValues.push([
             chatId,
             stravaId,
@@ -149,11 +156,11 @@ export default async function handler(req, res) {
             a.average_heartrate ? Math.round(a.average_heartrate) : "",
             a.max_heartrate ? Math.round(a.max_heartrate) : "",
             a.total_elevation_gain || "",
-            splitSummary.replace(/\n/g, " | ") // sheet tetap satu baris
+            splitSummary.replace(/\n/g, " | "),
           ]);
-        });
+        }
 
-        // --- 2) Simpan ke Google Sheet ---
+        // --- 2) Simpan semua ke Google Sheets ---
         try {
           const sheets = getSheetsClient();
           await sheets.spreadsheets.values.append({
@@ -167,32 +174,14 @@ export default async function handler(req, res) {
         }
 
         // --- 3) Analisis dengan Gemini ---
-        let aiMsg;
         try {
           const { analyzeActivities } = await import("../lib/gemini.js");
-          aiMsg = await analyzeActivities(activities, athleteName);
-
-          try {
-            const sheets = getSheetsClient();
-            await sheets.spreadsheets.values.append({
-              spreadsheetId: process.env.SHEET_ID,
-              range: "Analysis!A:D",
-              valueInputOption: "USER_ENTERED",
-              requestBody: {
-                values: [[chatId, stravaId, athleteName, aiMsg]],
-              },
-            });
-          } catch (err) {
-            console.error("❌ Gagal simpan analisis ke Sheets:", err);
-          }
+          const aiMsg = await analyzeActivities(activities, athleteName);
+          await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
         } catch (err) {
           console.error("❌ Gemini error:", err);
-          aiMsg = "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti.";
+          await sendMessage(chatId, "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti.");
         }
-
-        // --- 4) Kirim pesan ke Telegram ---
-        await sendMessage(chatId, detailMsg);
-        await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
       } catch (err) {
         console.error("Analisis error:", err);
         await sendMessage(chatId, `⚠️ ${err.message}`);
@@ -212,7 +201,11 @@ async function sendMessage(chatId, text) {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+      }),
     }
   );
 }

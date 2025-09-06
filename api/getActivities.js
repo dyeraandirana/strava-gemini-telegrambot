@@ -97,7 +97,7 @@ export async function getActivitiesWithSplits(userId, perPage = 3) {
   return withSplits;
 }
 
-// API handler untuk Vercel (opsional, buat debug)
+// API handler untuk Vercel (opsional)
 export default async function handler(req, res) {
   const userId = req.query.userId;
   if (!userId) {

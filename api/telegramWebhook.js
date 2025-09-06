@@ -111,17 +111,17 @@ export default async function handler(req, res) {
           const avgSec = Math.round(avgPaceSec % 60).toString().padStart(2, "0");
           const avgPaceStr = avgPaceSec ? `${avgMin}:${avgSec}/km` : "-";
 
-          let block = `<blockquote expandable>\n`;
-          block += `${idx + 1}. ${a.name}\n`;
+          let block = `${idx + 1}. ${a.name}\n`;
+          block += `<blockquote expandable>\n`;
           block += `🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
           block += `🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
           block += `⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
           block += `⚡ Pace rata²: ${avgPaceStr}\n`;
-
+          
           if (a.average_heartrate) block += `❤️ HR rata²: ${Math.round(a.average_heartrate)} bpm\n`;
           if (a.max_heartrate) block += `🔺 HR max: ${Math.round(a.max_heartrate)} bpm\n`;
           if (a.total_elevation_gain) block += `⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
-
+          
           let splitSummary = "No splits";
           if (a.splits && a.splits.length > 0) {
             splitSummary = a.splits
@@ -136,9 +136,10 @@ export default async function handler(req, res) {
               .join("\n");
             block += `📊 Splits:\n${splitSummary}\n`;
           }
-
+          
           block += `</blockquote>`;
           await sendMessage(chatId, block);
+
 
           // Simpan ke Google Sheets
           sheetValues.push([
@@ -177,7 +178,11 @@ export default async function handler(req, res) {
         try {
           const { analyzeActivities } = await import("../lib/gemini.js");
           const aiMsg = await analyzeActivities(activities, athleteName);
-          await sendMessage(chatId, "🤖 Analisis & Saran:\n\n" + aiMsg);
+          await sendMessage(
+            chatId,
+            `🤖 Analisis & Saran\n<blockquote expandable>\n${aiMsg}\n</blockquote>`
+          );
+
         } catch (err) {
           console.error("❌ Gemini error:", err);
           await sendMessage(chatId, "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti.");

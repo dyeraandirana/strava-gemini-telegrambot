@@ -117,11 +117,11 @@ export default async function handler(req, res) {
           block += `🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
           block += `⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
           block += `⚡ Pace rata²: ${avgPaceStr}\n`;
-          
+
           if (a.average_heartrate) block += `❤️ HR rata²: ${Math.round(a.average_heartrate)} bpm\n`;
           if (a.max_heartrate) block += `🔺 HR max: ${Math.round(a.max_heartrate)} bpm\n`;
           if (a.total_elevation_gain) block += `⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
-          
+
           let splitSummary = "No splits";
           if (a.splits && a.splits.length > 0) {
             splitSummary = a.splits
@@ -136,12 +136,11 @@ export default async function handler(req, res) {
               .join("\n");
             block += `📊 Splits:\n${splitSummary}\n`;
           }
-          
+
           block += `</blockquote>`;
           await sendMessage(chatId, block);
 
-
-          // Simpan ke Google Sheets
+          // --- Simpan ke Google Sheets ---
           const savedAt = new Date().toLocaleString("id-ID", {
             day: "2-digit",
             month: "2-digit",
@@ -150,7 +149,7 @@ export default async function handler(req, res) {
             minute: "2-digit",
             second: "2-digit",
           });
-          
+
           sheetValues.push([
             savedAt, // Kolom A: Tanggal Simpan
             chatId,
@@ -169,16 +168,17 @@ export default async function handler(req, res) {
             a.total_elevation_gain || "",
             splitSummary.replace(/\n/g, " | "),
           ]);
+        }
 
         // --- 2) Simpan semua ke Google Sheets ---
         try {
           const sheets = getSheetsClient();
-            await sheets.spreadsheets.values.append({
-              spreadsheetId: process.env.SHEET_ID,
-              range: "Activities!A:P", // sekarang 16 kolom
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: sheetValues },
-            });
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: process.env.SHEET_ID,
+            range: "Activities!A:P", // 16 kolom
+            valueInputOption: "USER_ENTERED",
+            requestBody: { values: sheetValues },
+          });
         } catch (err) {
           console.error("❌ Gagal simpan ke Sheets:", err);
         }
@@ -191,7 +191,6 @@ export default async function handler(req, res) {
             chatId,
             `🤖 Analisis & Saran\n<blockquote expandable>\n${aiMsg}\n</blockquote>`
           );
-
         } catch (err) {
           console.error("❌ Gemini error:", err);
           await sendMessage(chatId, "⚠️ Analisis AI gagal dijalankan. Coba lagi nanti.");

@@ -99,58 +99,58 @@ export default async function handler(req, res) {
         const sheetValues = [];
 
         activities.forEach((a, idx) => {
-          const pace =
-            a.moving_time > 0
-              ? (a.distance / a.moving_time).toFixed(2) + " m/s"
-              : "-";
+          // pace rata-rata aktivitas → menit/km
+          const avgPaceSec = a.moving_time > 0 ? a.moving_time / (a.distance / 1000) : 0;
+          const avgMin = Math.floor(avgPaceSec / 60);
+          const avgSec = Math.round(avgPaceSec % 60).toString().padStart(2, "0");
+          const avgPaceStr = avgPaceSec ? `${avgMin}:${avgSec}/km` : "-";
 
           detailMsg += `\n${idx + 1}. ${a.name}\n`;
           detailMsg += `   🗓️ ${new Date(a.start_date).toLocaleString("id-ID")}\n`;
           detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
           detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
-          detailMsg += `   ⚡ Pace: ${pace}\n`;
+          detailMsg += `   ⚡ Pace rata²: ${avgPaceStr}\n`;
 
           if (a.average_heartrate) detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
           if (a.max_heartrate) detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
           if (a.total_elevation_gain) detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
 
-          // --- Ringkas splits pace ---
+          // --- Splits ---
           let splitSummary = "No splits";
           if (a.splits && a.splits.length > 0) {
             splitSummary = a.splits
               .map((s, i) => {
-                // pace per km
                 const paceSec = s.moving_time > 0 ? s.moving_time / (s.distance / 1000) : 0;
                 const min = Math.floor(paceSec / 60);
                 const sec = Math.round(paceSec % 60).toString().padStart(2, "0");
                 const paceStr = paceSec ? `${min}:${sec}/km` : "-";
 
-                // HR kalau ada
                 const hr = s.average_heartrate ? ` (HR ${s.average_heartrate})` : "";
-
                 return `KM ${i + 1}: ${paceStr}${hr}`;
               })
-              .join(" | ");
-            detailMsg += `   📊 Splits: ${splitSummary}\n`;
+              .join("\n");
+
+            // Blockquote panjang → Telegram otomatis jadi expandable
+            detailMsg += `   📊 Splits:\n${splitSummary}\n`;
           }
 
           // Data untuk Google Sheets
           sheetValues.push([
-            chatId,                          // Telegram User ID
-            stravaId,                        // Strava User ID
-            athleteName,                     // Nama akun Strava
-            a.name,                          // Nama Aktivitas
+            chatId,
+            stravaId,
+            athleteName,
+            a.name,
             a.start_date,
             a.type,
             (a.distance / 1000).toFixed(2),
             (a.moving_time / 60).toFixed(1),
-            pace,
+            avgPaceStr,
             a.average_speed,
             a.max_speed,
             a.average_heartrate || "",
             a.max_heartrate || "",
             a.total_elevation_gain || "",
-            splitSummary
+            splitSummary.replace(/\n/g, " | ") // sheet lebih rapi, satu baris
           ]);
         });
 
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
           const sheets = getSheetsClient();
           await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.SHEET_ID,
-            range: "Activities!A:O", // 15 kolom
+            range: "Activities!A:O",
             valueInputOption: "USER_ENTERED",
             requestBody: { values: sheetValues },
           });
@@ -173,7 +173,6 @@ export default async function handler(req, res) {
           const { analyzeActivities } = await import("../lib/gemini.js");
           aiMsg = await analyzeActivities(activities, athleteName);
 
-          // Simpan hasil analisis juga
           try {
             const sheets = getSheetsClient();
             await sheets.spreadsheets.values.append({

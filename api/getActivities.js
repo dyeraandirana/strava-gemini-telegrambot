@@ -56,37 +56,48 @@ export async function getAccessToken(userId) {
   return accessToken;
 }
 
-export async function getActivities(userId, perPage = 5) {
+/**
+ * Ambil aktivitas terakhir lengkap dengan splits pace
+ */
+export async function getActivitiesWithSplits(userId, perPage = 3) {
   const token = await getAccessToken(userId);
-  if (!token) {
-    throw new Error("❌ Token tidak ditemukan atau refresh gagal");
-  }
+  if (!token) throw new Error("❌ Token tidak ditemukan atau refresh gagal");
 
+  // 1) Ambil daftar aktivitas
   const resp = await fetch(
     `https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
+    { headers: { Authorization: `Bearer ${token}` } }
   );
-
-  const text = await resp.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    console.error("Strava balas non-JSON:", text);
-    throw new Error("❌ Strava balas bukan JSON");
-  }
-
+  const activities = await resp.json();
   if (!resp.ok) {
-    console.error("Strava API error:", json);
-    throw new Error(json.message || "Gagal ambil aktivitas Strava");
+    console.error("Strava API error:", activities);
+    throw new Error(activities.message || "Gagal ambil aktivitas Strava");
   }
 
-  return json;
+  // 2) Ambil splits pace tiap aktivitas
+  const withSplits = [];
+  for (const act of activities) {
+    try {
+      const splitResp = await fetch(
+        `https://www.strava.com/api/v3/activities/${act.id}/splits/metric`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const splits = await splitResp.json();
+
+      withSplits.push({
+        ...act,
+        splits: Array.isArray(splits) ? splits : [],
+      });
+    } catch (err) {
+      console.error(`❌ Gagal ambil splits untuk aktivitas ${act.id}`, err);
+      withSplits.push({ ...act, splits: [] });
+    }
+  }
+
+  return withSplits;
 }
 
-// API handler untuk Vercel
+// API handler untuk Vercel (opsional, buat debug)
 export default async function handler(req, res) {
   const userId = req.query.userId;
   if (!userId) {
@@ -94,7 +105,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const activities = await getActivities(userId, 5);
+    const activities = await getActivitiesWithSplits(userId, 3);
     return res.status(200).json(activities);
   } catch (err) {
     console.error("GetActivities error:", err);

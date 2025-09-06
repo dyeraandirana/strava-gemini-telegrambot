@@ -142,7 +142,17 @@ export default async function handler(req, res) {
 
 
           // Simpan ke Google Sheets
+          const savedAt = new Date().toLocaleString("id-ID", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          
           sheetValues.push([
+            savedAt, // Kolom A: Tanggal Simpan
             chatId,
             stravaId,
             athleteName,
@@ -159,17 +169,16 @@ export default async function handler(req, res) {
             a.total_elevation_gain || "",
             splitSummary.replace(/\n/g, " | "),
           ]);
-        }
 
         // --- 2) Simpan semua ke Google Sheets ---
         try {
           const sheets = getSheetsClient();
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: process.env.SHEET_ID,
-            range: "Activities!A:O",
-            valueInputOption: "USER_ENTERED",
-            requestBody: { values: sheetValues },
-          });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: process.env.SHEET_ID,
+              range: "Activities!A:P", // sekarang 16 kolom
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: sheetValues },
+            });
         } catch (err) {
           console.error("❌ Gagal simpan ke Sheets:", err);
         }

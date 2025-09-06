@@ -1,7 +1,7 @@
 // api/telegramWebhook.js
 import fetch from "node-fetch";
 import { getSheetsClient } from "../lib/googleAuth.js";
-import { getActivities, getAccessToken } from "./getActivities.js";
+import { getAccessToken, getActivitiesWithSplits } from "./getActivities.js";
 
 function buildStravaAuthUrl(chatId) {
   const redirectUri = process.env.STRAVA_REDIRECT_URI;
@@ -72,8 +72,8 @@ export default async function handler(req, res) {
 
     else if (text === "/analisis") {
       try {
-        // --- Ambil data aktivitas ---
-        const activities = await getActivities(chatId, 5);
+        // --- Ambil 3 aktivitas terakhir + splits ---
+        const activities = await getActivitiesWithSplits(chatId, 3);
         if (!activities || activities.length === 0) {
           await sendMessage(chatId, "ℹ️ Tidak ada aktivitas ditemukan.");
           return;
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
         }
 
         // --- 1) Rincian aktivitas ---
-        let detailMsg = "📋 5 Aktivitas Terakhir:\n";
+        let detailMsg = "📋 3 Aktivitas Terakhir:\n";
         const sheetValues = [];
 
         activities.forEach((a, idx) => {
@@ -109,14 +109,22 @@ export default async function handler(req, res) {
           detailMsg += `   🏃‍♂️ Jarak: ${(a.distance / 1000).toFixed(2)} km\n`;
           detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
           detailMsg += `   ⚡ Pace: ${pace}\n`;
-          if (a.average_heartrate) {
-            detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
-          }
-          if (a.max_heartrate) {
-            detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
-          }
-          if (a.total_elevation_gain) {
-            detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
+
+          if (a.average_heartrate) detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
+          if (a.max_heartrate) detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
+          if (a.total_elevation_gain) detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
+
+          // --- Ringkas splits pace ---
+          if (a.splits && a.splits.length > 0) {
+            const splitSummary = a.splits
+              .map((s, i) => {
+                const pace = s.moving_time > 0
+                  ? (s.distance / s.moving_time).toFixed(2)
+                  : "-";
+                return `${i + 1}:${pace} m/s`;
+              })
+              .join(", ");
+            detailMsg += `   📊 Splits: ${splitSummary}\n`;
           }
 
           // Data untuk Google Sheets
@@ -135,6 +143,14 @@ export default async function handler(req, res) {
             a.average_heartrate || "",
             a.max_heartrate || "",
             a.total_elevation_gain || "",
+            a.splits && a.splits.length > 0
+              ? a.splits.map((s, i) => {
+                  const pace = s.moving_time > 0
+                    ? (s.distance / s.moving_time).toFixed(2)
+                    : "-";
+                  return `Lap ${i + 1}: ${pace} m/s`;
+                }).join(" | ")
+              : ""
           ]);
         });
 
@@ -143,7 +159,7 @@ export default async function handler(req, res) {
           const sheets = getSheetsClient();
           await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.SHEET_ID,
-            range: "Activities!A:N", // 14 kolom
+            range: "Activities!A:O", // 15 kolom (tambah kolom Splits)
             valueInputOption: "USER_ENTERED",
             requestBody: { values: sheetValues },
           });

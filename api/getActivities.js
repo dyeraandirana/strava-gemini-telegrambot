@@ -57,13 +57,15 @@ export async function getAccessToken(userId) {
 }
 
 /**
- * Ambil aktivitas terakhir lengkap dengan splits pace
+ * Ambil aktivitas terakhir lengkap dengan splits pace (km).
+ * - Utama: splits_metric
+ * - Fallback: laps
  */
 export async function getActivitiesWithSplits(userId, perPage = 3) {
   const token = await getAccessToken(userId);
   if (!token) throw new Error("❌ Token tidak ditemukan atau refresh gagal");
 
-  // 1) Ambil daftar aktivitas
+  // 1) Ambil daftar aktivitas (summary)
   const resp = await fetch(
     `https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`,
     { headers: { Authorization: `Bearer ${token}` } }
@@ -74,24 +76,45 @@ export async function getActivitiesWithSplits(userId, perPage = 3) {
     throw new Error(activities.message || "Gagal ambil aktivitas Strava");
   }
 
-  // 2) Ambil splits pace tiap aktivitas
+  // 2) Ambil splits tiap aktivitas
   const withSplits = [];
   for (const act of activities) {
+    let splits = [];
     try {
-      const splitResp = await fetch(
-        `https://www.strava.com/api/v3/activities/${act.id}/splits/metric`,
+      // Detailed activity untuk cek splits_metric
+      const detailResp = await fetch(
+        `https://www.strava.com/api/v3/activities/${act.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const splits = await splitResp.json();
+      const detail = await detailResp.json();
 
-      withSplits.push({
-        ...act,
-        splits: Array.isArray(splits) ? splits : [],
-      });
+      if (Array.isArray(detail.splits_metric) && detail.splits_metric.length > 0) {
+        splits = detail.splits_metric;
+      } else {
+        // fallback ke laps
+        const lapResp = await fetch(
+          `https://www.strava.com/api/v3/activities/${act.id}/laps`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const laps = await lapResp.json();
+        if (Array.isArray(laps)) {
+          splits = laps.map((lap, i) => ({
+            distance: lap.distance,
+            moving_time: lap.moving_time,
+            average_speed: lap.average_speed,
+            lap_index: i + 1,
+            elevation_gain: lap.total_elevation_gain,
+          }));
+        }
+      }
     } catch (err) {
-      console.error(`❌ Gagal ambil splits untuk aktivitas ${act.id}`, err);
-      withSplits.push({ ...act, splits: [] });
+      console.error(`❌ Gagal ambil splits/laps untuk aktivitas ${act.id}`, err);
     }
+
+    withSplits.push({
+      ...act,
+      splits: Array.isArray(splits) ? splits : [],
+    });
   }
 
   return withSplits;

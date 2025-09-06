@@ -115,8 +115,9 @@ export default async function handler(req, res) {
           if (a.total_elevation_gain) detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
 
           // --- Ringkas splits pace ---
+          let splitSummary = "No splits";
           if (a.splits && a.splits.length > 0) {
-            const splitSummary = a.splits
+            splitSummary = a.splits
               .map((s, i) => {
                 const pace = s.moving_time > 0
                   ? (s.distance / s.moving_time).toFixed(2)
@@ -143,14 +144,7 @@ export default async function handler(req, res) {
             a.average_heartrate || "",
             a.max_heartrate || "",
             a.total_elevation_gain || "",
-            a.splits && a.splits.length > 0
-              ? a.splits.map((s, i) => {
-                  const pace = s.moving_time > 0
-                    ? (s.distance / s.moving_time).toFixed(2)
-                    : "-";
-                  return `Lap ${i + 1}: ${pace} m/s`;
-                }).join(" | ")
-              : ""
+            splitSummary
           ]);
         });
 
@@ -159,7 +153,7 @@ export default async function handler(req, res) {
           const sheets = getSheetsClient();
           await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.SHEET_ID,
-            range: "Activities!A:O", // 15 kolom (tambah kolom Splits)
+            range: "Activities!A:O", // 15 kolom
             valueInputOption: "USER_ENTERED",
             requestBody: { values: sheetValues },
           });

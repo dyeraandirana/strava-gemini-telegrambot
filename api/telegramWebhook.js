@@ -111,8 +111,8 @@ export default async function handler(req, res) {
           detailMsg += `   ⏱️ Durasi: ${(a.moving_time / 60).toFixed(1)} menit\n`;
           detailMsg += `   ⚡ Pace rata²: ${avgPaceStr}\n`;
 
-          if (a.average_heartrate) detailMsg += `   ❤️ HR rata²: ${a.average_heartrate} bpm\n`;
-          if (a.max_heartrate) detailMsg += `   🔺 HR max: ${a.max_heartrate} bpm\n`;
+          if (a.average_heartrate) detailMsg += `   ❤️ HR rata²: ${Math.round(a.average_heartrate)} bpm\n`;
+          if (a.max_heartrate) detailMsg += `   🔺 HR max: ${Math.round(a.max_heartrate)} bpm\n`;
           if (a.total_elevation_gain) detailMsg += `   ⛰️ Elevasi: ${a.total_elevation_gain} m\n`;
 
           // --- Splits ---
@@ -125,12 +125,11 @@ export default async function handler(req, res) {
                 const sec = Math.round(paceSec % 60).toString().padStart(2, "0");
                 const paceStr = paceSec ? `${min}:${sec}/km` : "-";
 
-                const hr = s.average_heartrate ? ` (HR ${s.average_heartrate})` : "";
-                return `KM ${i + 1}: ${paceStr}${hr}`;
+                const hr = s.average_heartrate ? ` (HR ${Math.round(s.average_heartrate)})` : "";
+                return `> KM ${i + 1}: ${paceStr}${hr}`; // blockquote format
               })
               .join("\n");
 
-            // Blockquote panjang → Telegram otomatis jadi expandable
             detailMsg += `   📊 Splits:\n${splitSummary}\n`;
           }
 
@@ -145,12 +144,12 @@ export default async function handler(req, res) {
             (a.distance / 1000).toFixed(2),
             (a.moving_time / 60).toFixed(1),
             avgPaceStr,
-            a.average_speed,
-            a.max_speed,
-            a.average_heartrate || "",
-            a.max_heartrate || "",
+            a.average_speed ? a.average_speed.toFixed(2) : "",
+            a.max_speed ? a.max_speed.toFixed(2) : "",
+            a.average_heartrate ? Math.round(a.average_heartrate) : "",
+            a.max_heartrate ? Math.round(a.max_heartrate) : "",
             a.total_elevation_gain || "",
-            splitSummary.replace(/\n/g, " | ") // sheet lebih rapi, satu baris
+            splitSummary.replace(/\n/g, " | ") // sheet tetap satu baris
           ]);
         });
 
